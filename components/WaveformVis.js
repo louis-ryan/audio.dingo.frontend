@@ -20,7 +20,7 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
   useEffect(() => {
     if (waveformRef.current && waveformData && waveformData.length > 0) {
       console.log('Waveform data received:', waveformData.length, 'samples');
-      
+
       if (wavesurferRef.current) {
         wavesurferRef.current.destroy();
       }
@@ -28,14 +28,15 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
       try {
         wavesurferRef.current = WaveSurfer.create({
           container: waveformRef.current,
-          waveColor: 'violet',
-          progressColor: 'purple',
-          cursorColor: 'navy',
+          waveColor: 'rgb(203, 243, 234)',
+          progressColor: 'white',
+          cursorColor: 'white',
           height: 200,
           responsive: false,
           normalize: false,
           partialRender: false,
-          backend: 'WebAudio'
+          backend: 'WebAudio',
+          cursorWidth: 0,
         });
 
         // Create a mock audio file from the waveform data
@@ -89,14 +90,14 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
     const view = new DataView(out);
     const channels = [];
     let sample, offset = 0, pos = 0;
-  
+
     // Get max amplitude for normalization
     let maxAmplitude = 0;
     for (let i = 0; i < buffer.numberOfChannels; i++) {
       const channelData = buffer.getChannelData(i);
       maxAmplitude = Math.max(maxAmplitude, Math.max(...channelData.map(Math.abs)));
     }
-  
+
     // write WAVE header
     setUint32(0x46464952); // "RIFF"
     setUint32(length - 8); // file length - 8
@@ -111,12 +112,12 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
     setUint16(16); // 16-bit
     setUint32(0x61746164); // "data" chunk
     setUint32(length - pos - 4); // chunk length
-  
+
     // write interleaved data
     for (let i = 0; i < buffer.numberOfChannels; i++) {
       channels.push(buffer.getChannelData(i));
     }
-  
+
     while (pos < length) {
       for (let i = 0; i < numOfChan; i++) {
         sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
@@ -126,9 +127,9 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
       }
       offset++;
     }
-  
+
     return new Blob([out], { type: 'audio/wav' });
-  
+
     function setUint16(data) {
       view.setUint16(pos, data, true);
       pos += 2;
@@ -138,11 +139,14 @@ const WaveformVisualization = ({ waveformData, sampleRate = 44100 }) => {
       pos += 4;
     }
   }
-  
+
 
   return (
     <div>
-      <div ref={waveformRef} style={{ width: '100%', height: '200px' }} />
+      <div
+        ref={waveformRef}
+        className='waveformbox'
+      />
       {error && <div style={{ color: 'red' }}>{error}</div>}
     </div>
   );

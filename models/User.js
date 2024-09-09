@@ -6,6 +6,7 @@ const UserSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
+    pic: String,
     credits: {
         type: Number,
         required: true,

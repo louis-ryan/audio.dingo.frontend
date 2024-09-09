@@ -1,18 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { Audio } from 'react-loader-spinner'
 import WaveformVisualization from './WaveformVis';
+import FileUploader from './FileUploader';
 
-const VideoProcessor = ({ userSub }) => {
+const VideoProcessor = ({ userSub, getVideos, credits, setCredits }) => {
   const [file, setFile] = useState(null);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('Init');
   const [taskId, setTaskId] = useState(null);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState('');
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [originalWaveform, setOriginalWaveform] = useState(null);
   const [processedWaveform, setProcessedWaveform] = useState(null);
-  const originalCanvasRef = useRef(null);
-  const processedCanvasRef = useRef(null);
+  const [currentVideoCost, setCurrentVideoCost] = useState(null);
 
   useEffect(() => {
     let intervalId;
@@ -22,51 +23,40 @@ const VideoProcessor = ({ userSub }) => {
     return () => clearInterval(intervalId);
   }, [taskId]);
 
-  useEffect(() => {
-    if (originalWaveform && originalWaveform.length > 0) {
-      drawWaveform(originalCanvasRef.current, originalWaveform);
+  const fileSizeToCredits = (bytes) => {
+    const creditVal = Math.floor(bytes / 150000000)
+    if (creditVal === 0) { creditVal = 1 }
+    return creditVal
+  }
+
+  const patchUserCredits = async (userSub, newCreditsVal) => {
+    try {
+      const res = await fetch(`api/updateCredits/${userSub}`, {
+        method: 'PATCH',
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ credits: newCreditsVal })
+      })
+      const resJSON = await res.json()
+      if (resJSON.data) {
+        setCredits(resJSON.data.credits)
+      } else {
+        console.log('There was a problem setting a new credits value')
+      }
+    } catch (error) {
+      console.log("issue patching credits: ", error)
     }
-  }, [originalWaveform]);
-
-  useEffect(() => {
-    if (processedWaveform && processedWaveform.length > 0) {
-      drawWaveform(processedCanvasRef.current, processedWaveform);
-    }
-  }, [processedWaveform]);
-
-  const drawWaveform = (canvas, waveformData) => {
-    if (!canvas || !waveformData) return;
-
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    const step = Math.ceil(waveformData.length / width);
-    const amp = height / 2;
-
-    ctx.fillRect(0, 0, width, height);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'blue';
-    ctx.beginPath();
-
-    for (let i = 0; i < width; i++) {
-      const min = Math.min(...waveformData.slice(i * step, (i + 1) * step));
-      const max = Math.max(...waveformData.slice(i * step, (i + 1) * step));
-      ctx.moveTo(i, (1 + min) * amp);
-      ctx.lineTo(i, (1 + max) * amp);
-    }
-
-    ctx.stroke();
-  };
+  }
 
   const handleFileInput = async (event) => {
     const selectedFile = event.target.files[0];
     setFile(selectedFile);
-    setStatus('');
+    setStatus('Uploading');
     setDownloadUrl('');
     setIsDownloaded(false);
     setTaskId(null);
     setProgress(0);
     setProcessedWaveform(null);
+    setCurrentVideoCost(fileSizeToCredits(selectedFile.size))
 
     if (selectedFile) {
       const formData = new FormData();
@@ -78,8 +68,8 @@ const VideoProcessor = ({ userSub }) => {
             'Content-Type': 'multipart/form-data'
           }
         });
-
         setOriginalWaveform(response.data.original_waveform);
+        setStatus('Original')
       } catch (error) {
         console.error('Input error:', error);
         setStatus(`Error: ${error.response?.data?.error || 'Unknown server error'}`);
@@ -88,7 +78,6 @@ const VideoProcessor = ({ userSub }) => {
   };
 
   const handleFileProcess = async () => {
-
     if (file) {
       const formData = new FormData();
       formData.append('file', file);
@@ -116,15 +105,16 @@ const VideoProcessor = ({ userSub }) => {
 
       if (response.data.state === 'PROGRESS') {
         setProgress(response.data.meta.progress);
-        setStatus(`Processing: ${response.data.meta.progress}% complete`);
+        setStatus('Processing');
       } else if (response.data.state === 'SUCCESS') {
-        console.log('Task succeeded. Result:', response.data.result);
         if (response.data.result.filename) {
           setDownloadUrl(`http://localhost:5000/download/${response.data.result.filename}`);
+          getVideos(userSub)
           setProcessedWaveform(response.data.result.processed_waveform);
           setTaskId(null);
           setProgress(100);
           setStatus('Processing complete! Click the link below to download.');
+          patchUserCredits(userSub, credits - fileSizeToCredits(file.size))
         } else {
           console.error('Missing filename in result:', response.data.result);
           setStatus('Processing complete, but no file was returned. Please try again.');
@@ -152,28 +142,47 @@ const VideoProcessor = ({ userSub }) => {
   };
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>Video Audio Processor</h1>
-      <input
-        type="file"
-        onChange={handleFileInput}
-        accept="video/*"
-        style={styles.fileInput}
-      />
+    <div className='processcontainer'>
+      <h1>Video Audio Processor</h1>
 
+      {status === 'Init' && (
+        <FileUploader handleFileInput={handleFileInput} />
+      )}
 
+      {status === 'Uploading' && (
+        <div className='loadercontainer'>
+          <div>
+            <Audio
+              height="80"
+              width="80"
+              radius="8"
+              color="lightgrey"
+              ariaLabel="loading"
+              wrapperStyle
+              wrapperClass
+            />
+            <h4>Uploading Original Audio</h4>
+          </div>
+        </div>
+      )}
 
-      {originalWaveform && (
+      {status === 'Original' && (
         <>
-          <h3>Original Audio</h3>
-
           <WaveformVisualization waveformData={originalWaveform} />
 
-          <button onClick={handleFileProcess} style={styles.downloadLink}>
+          <h3>This is your original audio</h3>
+
+          <h4>Processing this video will cost {currentVideoCost} credits</h4>
+
+          <button onClick={handleFileProcess}>
             Process
           </button>
         </>
 
+      )}
+
+      {status === 'Processing' && (
+        <h2>Progress {progress}%</h2>
       )}
 
       {processedWaveform && (
@@ -187,9 +196,8 @@ const VideoProcessor = ({ userSub }) => {
               href={downloadUrl}
               download
               onClick={handleDownload}
-              style={styles.downloadLink}
             >
-              Download Processed Video (One-time download)
+              Download Processed Video
             </a>
           )}
         </>
@@ -200,19 +208,6 @@ const VideoProcessor = ({ userSub }) => {
 };
 
 const styles = {
-  container: {
-    maxWidth: '800px',
-    margin: '0 auto',
-    padding: '20px',
-    textAlign: 'center',
-  },
-  title: {
-    fontSize: '24px',
-    marginBottom: '20px',
-  },
-  fileInput: {
-    marginBottom: '20px',
-  },
   status: {
     marginTop: '20px',
     fontWeight: 'bold',
@@ -231,17 +226,7 @@ const styles = {
   },
   waveform: {
     border: '1px solid #ccc',
-  },
-  downloadLink: {
-    display: 'block',
-    marginTop: '20px',
-    padding: '10px',
-    backgroundColor: '#4CAF50',
-    color: 'white',
-    textDecoration: 'none',
-    borderRadius: '5px',
-    width: '100%'
-  },
+  }
 };
 
 export default VideoProcessor;
